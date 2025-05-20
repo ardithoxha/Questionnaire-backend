@@ -1,0 +1,20 @@
+{
+  "name": "questionnaire-backend",
+  "version": "1.0.0",
+  "description": "Backend for the questionnaire application",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --watch index.js",
+    "start:server": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "postgres": "^3.4.5"
+  }
+}

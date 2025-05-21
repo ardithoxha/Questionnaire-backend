@@ -2,42 +2,43 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs').promises;
 const path = require('path');
+// const serverless = require('serverless-http');
 const app = express();
 const pg = require('pg');
 const { Client } = pg;
 const PORT = process.env.PORT || 3000;
 
-const client = new Client({
-    connectionString: process.env.DATABASE_URL,
-})
-client.connect()
-    .then(() => console.log('Connected to PostgreSQL'))
-    .catch(err => console.error('Error connecting to PostgreSQL', err));
-
-client.query(`CREATE DATABASE questionnaire;`)
-    .then(() => console.log('Database created successfully'))
-    .catch(err => {
-        if (err.code === '42P04') {
-            console.log('Database already exists');
-        } else {
-            console.error('Error creating database', err);
-        }
-    })
+async function initialize() {
+    const initClient = new Client({
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT,
+        ssl: { rejectUnauthorized: false }
+    });
+    await initClient.connect()
+    .then(() => console.log('Connected to AWS RDS PostgreSQL'))
+    .catch((err) => console.error('Connection error', err))
     .then(() => {
         const sqlFilePath = path.join(__dirname, 'sql/schema.sql');
         return fs.readFile(sqlFilePath, 'utf8');
     })
-    .then(sqlCommnads => client.query(sqlCommnads))
-    .then(() => console.log('Created database schema'))
+    .then((sqlCommands) => initClient.query(sqlCommands))
+    .catch((err) => console.error('Error creating schema', err))
     .then(() => {
         const sqlFeedFilePath = path.join(__dirname, 'sql/seed.sql');
         return fs.readFile(sqlFeedFilePath, 'utf8');
     })
-    .then(sqlInsertCommnads => client.query(sqlInsertCommnads))
-    .then(() => console.log('Inserted data into database'))
-    .catch(err => console.error('Error creating database', err));
+    .then((sqlInsertCommnads) => initClient.query(sqlInsertCommnads))
+    .catch((err) => console.error('Error inserting data', err))
+    .then(() => initClient.end())
+    .then(() => console.log('Disconnected from AWS RDS PostgreSQL'));
+}
 
-app.use(express.json());
+initialize();
+
+app.use(express.json({ strict: false }));
+app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
@@ -48,6 +49,16 @@ app.use((req, res, next) => {
 
 app.get('/questions', async (req, res) => {
     try {
+        const client = new Client({
+            user: process.env.DB_USER,
+            host: process.env.DB_HOST,
+            database: process.env.DB_NAME,
+            password: process.env.DB_PASSWORD,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false }
+        });
+        await client.connect().then(() => console.log('Connected to AWS RDS PostgreSQL'))
+
         const response = await client.query(`
             SELECT 
             (SELECT count(true) FROM answers WHERE is_correct IS TRUE) as score,
@@ -73,6 +84,8 @@ app.get('/questions', async (req, res) => {
                 FROM questions
             ) array_row) as questions;
         `);
+        await client.end().then(() => console.log('Disconnected from AWS RDS PostgreSQL'));
+        console.log('Sent questions');
         res.status(200).json(response.rows[0]);
     } catch (error) {
         console.error('Error:', error);
@@ -82,9 +95,18 @@ app.get('/questions', async (req, res) => {
 
 app.get('/clear', async (req, res) => {
     try {
-        await client.query(`TRUNCATE answers;`);
+        const clearClient = new Client({
+            user: process.env.DB_USER,
+            host: process.env.DB_HOST,
+            database: process.env.DB_NAME,
+            password: process.env.DB_PASSWORD,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false }
+        });
+        await clearClient.connect().then(() => console.log('Connected to AWS RDS PostgreSQL'))
+        await clearClient.query(`TRUNCATE answers;`);
 
-        const response = await client.query(`
+        const response = await clearClient.query(`
         SELECT 
         (SELECT count(true) FROM answers WHERE is_correct IS TRUE) as score,
         (SELECT count(true) FROM answers) as answers_total,
@@ -99,6 +121,8 @@ app.get('/clear', async (req, res) => {
             LIMIT 1
         ) as question_index`
         );
+        await clearClient.end().then(() => console.log('Disconnected from AWS RDS PostgreSQL'));
+        console.log('Cleared questionnaire');
         res.status(200).json(response.rows[0]);
     } catch (error) {
         console.error('Error:', error);
@@ -107,25 +131,34 @@ app.get('/clear', async (req, res) => {
 });
 
 app.post('/submit', async (req, res) => {
+    const submitClient = new Client({
+            user: process.env.DB_USER,
+            host: process.env.DB_HOST,
+            database: process.env.DB_NAME,
+            password: process.env.DB_PASSWORD,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false }
+        });
+    await submitClient.connect().then(() => console.log('Connected to AWS RDS PostgreSQL'));
+    console.log('Body:', req.body);
     const question_uuid = req.body.question_uuid;
     const selection = req.body.selection;
     console.log('question id:', question_uuid);
     console.log('selection', selection);    
 
-    const data = await client.query(
+    const data = await submitClient.query(
         `SELECT right_answer FROM questions WHERE uuid = $1`,
         [question_uuid]
     );
-
     const is_correct = (data.rows[0].right_answer === selection);
     console.log('is_correct',data.rows[0], selection, is_correct);
     try {
-        await client.query(
+        await submitClient.query(
             'INSERT INTO answers (question_uuid, selection, is_correct) VALUES ($1, $2, $3)',
             [question_uuid, selection, is_correct]
         );
 
-        const response = await client.query(`
+        const response = await submitClient.query(`
             SELECT 
             (SELECT count(true) FROM answers WHERE is_correct IS TRUE) as score,
             (SELECT count(true) FROM answers) as answers_total,
@@ -140,7 +173,9 @@ app.post('/submit', async (req, res) => {
                 LIMIT 1
             ) as question_index;`
         );
+        await submitClient.end().then(() => console.log('Disconnected from AWS RDS PostgreSQL'));
 
+        console.log('Submittedquestionnaire');
         res.status(200).json(response.rows[0]);
     } catch (error) {
         console.error('Failed to record answer:', error);
@@ -151,3 +186,5 @@ app.post('/submit', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+// module.exports.handler = serverless(app);

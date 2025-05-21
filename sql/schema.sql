@@ -4,7 +4,7 @@ DROP TABLE IF EXISTS answers;
 DROP TABLE IF EXISTS questions; 
 
 
-CREATE TABLE public.questions (
+CREATE TABLE questions (
   uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   question TEXT NOT NULL,
   choice_a TEXT NOT NULL,

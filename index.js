@@ -140,7 +140,9 @@ app.post('/submit', async (req, res) => {
             ssl: { rejectUnauthorized: false }
         });
     await submitClient.connect().then(() => console.log('Connected to AWS RDS PostgreSQL'));
-    console.log('Body:', req.body);
+    // const jsonBody = JSON.parse(req.apiGateway.event.body);
+    // const question_uuid = jsonBody.question_uuid;
+    // const selection = jsonBody.selection;
     const question_uuid = req.body.question_uuid;
     const selection = req.body.selection;
     console.log('question id:', question_uuid);
